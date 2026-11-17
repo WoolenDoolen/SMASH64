@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Sinister Gauntlet gameplay checks</title>
+<style>body { background: #17151a; color: #ddd; font: 15px monospace; } iframe { width: 1050px; height: 900px; border: 0; }</style>
+<h1>Gameplay checks</h1>
+<pre id="results">Waiting for Phaser...</pre>
+<iframe id="prototype" src="../index.html"></iframe>
+<script>
+"use strict";
+const results = document.getElementById("results");
+const frame = document.getElementById("prototype");
+const lines = [];
+let failures = 0;
+function check(name, test) {
+  try { test(); lines.push("PASS " + name); }
+  catch (error) { failures++; lines.push("FAIL " + name + ": " + error.message); }
+  results.textContent = lines.join("\n");
+}
+function assert(condition, message) { if (!condition) throw new Error(message || "Assertion failed"); }
+const errors = [];
+frame.addEventListener("load", () => {
+  const win = frame.contentWindow;
+  win.addEventListener("error", event => errors.push(event.message));
+  let attempts = 0;
+  const timer = setInterval(() => {
+    try {
+      const game = win.game;
+      const scene = game && game.scene.getScene("Dungeon");
+      if (!scene || !scene.player) {
+        if (++attempts > 100) throw new Error("Game did not initialize");
+        return;
+      }
+      clearInterval(timer);
+      game.loop.sleep();
+      run(game, scene, win);
+    } catch (error) {
+      clearInterval(timer);
+      failures++;
+      results.textContent += "\nFAIL initialization: " + error.message;
+      document.body.dataset.result = "fail";
+    }
+  }, 50);
+});
+function run(game, scene, win) {
+  const fresh = () => {
+    game.scene.stop("Dungeon");
+    game.scene.start("Dungeon");
+    scene = game.scene.getScene("Dungeon");
+    scene.begin();
+    scene.enemies.clear(true, true);
+    scene.coins.clear(true, true);
+    scene.chests.clear(true, true);
+    scene.enemyGold.goblin = 0;
+    scene.enemyGold.skeleton = 0;
+    return scene;
+  };
+  const step = (frames = 1) => {
+    for (let i = 0; i < frames; i++) {
+      scene.update(0, 1000 / 60);
+      scene.physics.world.update(0, 1000 / 60);
+      scene.physics.world.postUpdate();
+    }
+  };
+  check("Phaser 4.2.1 local copy boots with center spawn", () => {
+    assert(win.Phaser.VERSION === "4.2.1");
+    assert(scene.player.x === 900 && scene.player.y === 700);
+    assert(!scene.started && scene.physics.world.isPaused);
+    assert(scene.chests.countActive() === 14 && scene.coins.countActive() === 46);
+    assert(scene.enemies.countActive() === 2);
+  });
+  check("movement, normalized diagonals, wall and pillar collisions", () => {
+    fresh();
+    scene.keys.right.isDown = true;
+    scene.keys.down.isDown = true;
+    step();
+    assert(Math.abs(scene.player.body.velocity.length() - 235) < 0.1);
+    scene.keys.down.isDown = false;
+    scene.player.body.reset(1740, 700);
+    step(60);
+    assert(scene.player.x <= 1754 && scene.player.x > 1700, "Player left arena bounds");
+    scene.player.body.reset(360, 330);
+    step(30);
+    assert(scene.player.x < 390, "Player crossed a pillar");
+    scene.keys.right.isDown = false;
+  });
+  check("chests block movement, break, and release gold", () => {
+    fresh();
+    const chest = scene.spawnChest(960, 700);
+    scene.keys.right.isDown = true;
+    step(25);
+    assert(scene.player.x < 940, "Player crossed a chest");
+    scene.keys.right.isDown = false;
+    scene.player.body.reset(900, 700);
+    scene.aim = 0;
+    scene.attack();
+    assert(chest.hp === 1);
+    scene.playTime += 300;
+    scene.attack();
+    assert(!chest.active && scene.coins.countActive() === 5);
+  });
+  check("sword is directional; axe reaches targets on the side", () => {
+    fresh();
+    const front = scene.spawnEnemy("goblin", 970, 700);
+    const side = scene.spawnEnemy("goblin", 900, 780);
+    const behind = scene.spawnEnemy("goblin", 830, 700);
+    scene.aim = 0;
+    scene.attack();
+    assert(front.hp === 2 && side.hp === 4 && behind.hp === 4);
+    assert(!scene.attack(), "Cooldown allowed another attack");
+    scene.weaponIndex = 1;
+    scene.playTime += 750;
+    scene.attack();
+    assert(!front.active && side.hp === 1 && behind.hp === 4);
+  });
+  check("bow spends gold and actual projectile collision damages enemies", () => {
+    fresh();
+    scene.weaponIndex = 2;
+    scene.aim = 0;
+    const enemy = scene.spawnEnemy("goblin", 1040, 700);
+    scene.updateEnemies = () => {};
+    scene.attack();
+    assert(scene.gold === 7 && scene.playerShots.countActive() === 1);
+    step(20);
+    assert(enemy.hp === 2, "Arrow did not hit target");
+    assert(scene.playerShots.countActive() === 0);
+    scene.gold = 0;
+    scene.playTime += 400;
+    assert(!scene.attack() && scene.playerShots.countActive() === 0);
+    // Restore the prototype method after the stationary-target check.
+    delete scene.updateEnemies;
+  });
+  check("player and monsters collect the same physical gold", () => {
+    fresh();
+    scene.dropGold(900, 700, 1);
+    step(2);
+    assert(scene.gold === 9 && scene.coins.countActive() === 0);
+    const enemy = scene.spawnEnemy("goblin", 1150, 700);
+    scene.dropGold(1150, 700, 1);
+    step(2);
+    assert(enemy.carried === 1 && scene.enemyGold.goblin === 1);
+    scene.damageTarget(enemy, 99);
+    assert(scene.enemyGold.goblin === 0 && scene.coins.countActive() === 3);
+  });
+  check("enemy seeks gold and skeleton fires at player", () => {
+    fresh();
+    const goblin = scene.spawnEnemy("goblin", 1100, 700);
+    scene.dropGold(1200, 700, 1);
+    scene.updateEnemies();
+    assert(goblin.body.velocity.x > 0, "Goblin ignored nearby gold");
+    const skeleton = scene.spawnEnemy("skeleton", 900, 450);
+    skeleton.nextShot = 0;
+    scene.playTime = 1;
+    scene.updateEnemies();
+    assert(scene.enemyShots.countActive() === 1);
+    assert(scene.enemyShots.getChildren()[0].body.velocity.y > 0);
+  });
+  check("damage invulnerability and healing drops", () => {
+    fresh();
+    scene.hurtPlayer(8);
+    scene.hurtPlayer(8);
+    assert(scene.health === 92);
+    scene.heals.create(900, 700, "heal");
+    step(2);
+    assert(scene.health === 100 && scene.heals.countActive() === 0);
+  });
+  check("summoning requires enough gold and the altar", () => {
+    fresh();
+    assert(!scene.trySummon() && !scene.boss);
+    scene.gold = 30;
+    scene.player.body.reset(300, 300);
+    assert(!scene.trySummon() && scene.gold === 30);
+    scene.player.body.reset(900, 700);
+    assert(scene.trySummon() && scene.gold === 0);
+    assert(scene.boss.faction === "goblin" && !scene.boss.empowered);
+    assert(scene.bossParts.length === 3);
+  });
+  check("boss shield, independently breakable parts, exposed core and victory", () => {
+    const core = scene.boss.core;
+    scene.damageTarget(core, 99);
+    assert(core.hp === core.maxHp && !scene.ended);
+    for (const part of scene.bossParts) scene.damageTarget(part, 99);
+    assert(scene.bossParts.every(part => !part.active));
+    scene.damageTarget(core, 99);
+    assert(scene.ended && scene.physics.world.isPaused);
+    assert(win.document.getElementById("overlay-title").textContent === "Boss defeated!");
+  });
+  check("enemy collection triggers empowered boss of winning faction", () => {
+    fresh();
+    const enemy = scene.spawnEnemy("skeleton", 1200, 700);
+    enemy.carried = 29;
+    scene.enemyGold.skeleton = 29;
+    scene.dropGold(1200, 700, 1);
+    step(2);
+    assert(scene.boss && scene.boss.empowered && scene.boss.faction === "skeleton");
+    assert(scene.boss.core.hp === 28);
+  });
+  check("skeleton boss fires radial bolts; parts reduce attack size", () => {
+    scene.boss.nextAction = 0;
+    scene.updateBoss(16);
+    assert(scene.enemyShots.countActive() === 10);
+    scene.enemyShots.clear(true, true);
+    scene.damageTarget(scene.bossParts[0], 99);
+    scene.boss.nextAction = 0;
+    scene.updateBoss(16);
+    assert(scene.enemyShots.countActive() === 8);
+  });
+  check("player summoning follows leading enemy faction", () => {
+    fresh();
+    scene.enemyGold.skeleton = 3;
+    scene.enemyGold.goblin = 1;
+    scene.gold = 30;
+    scene.trySummon();
+    assert(scene.boss.faction === "skeleton" && !scene.boss.empowered);
+  });
+  check("goblin boss warns, charges and keeps armor attached", () => {
+    fresh();
+    scene.summonBoss(false, "goblin");
+    scene.boss.nextAction = 0;
+    scene.playTime = 1;
+    const x = scene.boss.core.x;
+    scene.updateBoss(50);
+    assert(scene.boss.core.x === x && scene.boss.warningUntil > scene.playTime, "Boss moved during warning");
+    scene.playTime = scene.boss.warningUntil + 1;
+    scene.updateBoss(50);
+    assert(scene.boss.core.x !== x, "Boss did not charge");
+    assert(scene.bossParts[0].x === scene.boss.core.x - 67, "Armor sprite detached");
+    assert(Math.abs(scene.bossParts[0].body.center.x - scene.bossParts[0].x) < 0.01,
+      `Armor body detached: ${scene.bossParts[0].body.center.x} vs ${scene.bossParts[0].x}`);
+    step(20);
+    assert(Math.abs(scene.bossParts[0].x - scene.boss.core.x + 67) < 0.01, "Physics displaced attached armor");
+  });
+  check("pause freezes gameplay and resume continues", () => {
+    fresh();
+    scene.togglePause();
+    const time = scene.playTime;
+    step(10);
+    assert(scene.playTime === time && scene.physics.world.isPaused);
+    assert(!win.document.getElementById("overlay").hidden);
+    scene.togglePause();
+    step();
+    assert(scene.playTime > time && !scene.physics.world.isPaused);
+  });
+  check("loss and restart reset health, currency, boss and entities", () => {
+    fresh();
+    scene.hurtPlayer(100);
+    assert(scene.ended && win.document.getElementById("overlay-title").textContent.includes("fell"));
+    game.scene.stop("Dungeon");
+    game.scene.start("Dungeon");
+    scene = game.scene.getScene("Dungeon");
+    assert(!scene.ended && !scene.started && scene.health === 100 && scene.gold === 8 && !scene.boss);
+    assert(scene.chests.countActive() === 14 && scene.enemies.countActive() === 2);
+    assert(scene.input.keyboard.listenerCount("keydown-P") === 1, "Duplicate pause listeners after restart");
+  });
+  if (new URLSearchParams(location.search).has("preview")) {
+    document.querySelector("h1").hidden = true;
+    results.hidden = true;
+    document.body.style.margin = "0";
+    scene.begin();
+    scene.gold = 30;
+    scene.trySummon();
+  }
+  game.loop.wake();
+  setTimeout(() => {
+    check("no browser runtime errors after resuming normal rendering", () => assert(errors.length === 0, errors.join("; ")));
+    lines.push(`\n${lines.length - failures} passed, ${failures} failed`);
+    results.textContent = lines.join("\n");
+    document.body.dataset.result = failures ? "fail" : "pass";
+  }, 250);
+}
+</script>
+</html>
