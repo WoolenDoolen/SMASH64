@@ -155,6 +155,37 @@ function run(game, scene, win) {
     assert(scene.enemyShots.countActive() === 1);
     assert(scene.enemyShots.getChildren()[0].body.velocity.y > 0);
   });
+  check("red projectile hit preserves the player, movement and restart", () => {
+    fresh();
+    scene.shootBolt(scene.player.x - 70, scene.player.y, 0);
+    step(35);
+    assert(scene.player.active && scene.player.body, "Projectile destroyed the player");
+    assert(scene.health < 100 && scene.health > 0, "Projectile should damage health");
+    assert(scene.enemyShots.countActive() === 0, "Projectile should be removed");
+    const x = scene.player.x;
+    scene.keys.right.isDown = true;
+    step(8);
+    assert(scene.player.x > x, "Movement stopped after getting hit");
+    scene.keys.right.isDown = false;
+    scene.input.keyboard.emit("keydown-R", { repeat: false });
+    // Apply the queued scene restart through Phaser's real scene manager.
+    game.scene.update(0, 16);
+    scene = game.scene.getScene("Dungeon");
+    assert(scene.player.active && scene.health === 100 && !scene.started, "R did not restart after the hit");
+  });
+  check("fatal red projectile shows game over and R still restarts", () => {
+    fresh();
+    scene.health = 1;
+    scene.shootBolt(scene.player.x - 70, scene.player.y, 0);
+    step(35);
+    assert(scene.ended && scene.health === 0 && scene.player.active);
+    assert(scene.physics.world.isPaused && !win.document.getElementById("overlay").hidden);
+    assert(win.document.getElementById("overlay-title").textContent.includes("fell"));
+    scene.input.keyboard.emit("keydown-R", { repeat: false });
+    game.scene.update(0, 16);
+    scene = game.scene.getScene("Dungeon");
+    assert(scene.player.active && !scene.ended && scene.health === 100 && !scene.started);
+  });
   check("damage invulnerability and healing drops", () => {
     fresh();
     scene.hurtPlayer(8);

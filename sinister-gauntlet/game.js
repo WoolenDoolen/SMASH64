@@ -28,7 +28,7 @@ class Dungeon extends Phaser.Scene {
     this.aim = 0;
     this.nextAttack = 0;
     this.invulnerableUntil = 0;
-    this.nextSpawn = 2000;
+    this.nextSpawn = 4000;
     this.nextChest = 14000;
     this.nextGold = 10000;
     this.playTime = 0;
@@ -44,7 +44,7 @@ class Dungeon extends Phaser.Scene {
     this.obstacles = this.physics.add.staticGroup();
     for (const [x, y] of [[420, 330], [1380, 330], [420, 1070], [1380, 1070], [680, 480], [1120, 920]]) {
       const pillar = this.obstacles.create(x, y, "pillar");
-      pillar.body.setCircle(29, 3, 3);
+      pillar.body.setSize(64, 64);
     }
     this.chests = this.physics.add.staticGroup();
     this.coins = this.physics.add.staticGroup();
@@ -55,14 +55,15 @@ class Dungeon extends Phaser.Scene {
     this.parts = this.physics.add.group();
     this.player = this.physics.add.sprite(900, 700, "player").setDepth(5);
     this.player.setCircle(15, 5, 5).setCollideWorldBounds(true).setBounce(0.2);
+    this.playerLabel = this.add.text(900, 670, "YOU", { fontSize: "14px", color: "#ffffff" }).setOrigin(0.5).setDepth(10);
 
     this.physics.add.collider(this.player, this.obstacles);
     this.physics.add.collider(this.player, this.chests);
     this.physics.add.collider(this.enemies, this.obstacles);
     this.physics.add.collider(this.enemies, this.chests);
     this.physics.add.collider(this.enemies, this.enemies);
-    this.physics.add.collider(this.player, this.parts, () => this.hurtPlayer(12));
-    this.physics.add.overlap(this.player, this.enemies, () => this.hurtPlayer(8));
+    this.physics.add.collider(this.player, this.parts, () => this.hurtPlayer(10));
+    this.physics.add.overlap(this.player, this.enemies, () => this.hurtPlayer(6));
     this.physics.add.overlap(this.player, this.coins, (_, coin) => this.collectPlayer(coin));
     this.physics.add.overlap(this.enemies, this.coins, (enemy, coin) => this.collectEnemy(enemy, coin));
     this.physics.add.overlap(this.player, this.heals, (_, drop) => {
@@ -75,10 +76,12 @@ class Dungeon extends Phaser.Scene {
     this.physics.add.overlap(this.playerShots, this.chests, (shot, chest) => this.hitWithArrow(shot, chest));
     this.physics.add.overlap(this.playerShots, this.parts, (shot, part) => this.hitWithArrow(shot, part));
     this.physics.add.collider(this.playerShots, this.obstacles, shot => shot.destroy());
-    this.physics.add.overlap(this.enemyShots, this.player, shot => {
+    // Arcade passes the single sprite first for a sprite/group overlap.
+    // Keep the player first explicitly so only the projectile gets destroyed.
+    this.physics.add.overlap(this.player, this.enemyShots, (_, shot) => {
       if (!shot.active) return;
       shot.destroy();
-      this.hurtPlayer(7);
+      this.hurtPlayer(4, "red shot");
     });
     this.physics.add.collider(this.enemyShots, this.obstacles, shot => shot.destroy());
     this.physics.add.collider(this.enemyShots, this.chests, shot => shot.destroy());
@@ -125,11 +128,11 @@ class Dungeon extends Phaser.Scene {
     this.physics.world.pause();
     this.refreshHud();
     ui.overlay.hidden = false;
-    ui["overlay-title"].textContent = "Enter the dungeon";
+    ui["overlay-title"].textContent = "How to play";
     ui["overlay-copy"].innerHTML = this.game.registry.get("instructions") || ui["overlay-copy"].innerHTML;
     this.game.registry.set("instructions", ui["overlay-copy"].innerHTML);
-    ui.play.textContent = "Start prototype";
-    this.notice("Gold is yellow. Chests are brown. You are blue.", 100000);
+    ui.play.textContent = "Start";
+    this.notice("Collect yellow gold. Break brown chests for more.", 100000);
   }
 
   makeTextures() {
@@ -137,63 +140,45 @@ class Dungeon extends Phaser.Scene {
     const g = this.make.graphics({ x: 0, y: 0, add: false });
     const texture = (key, w, h, draw) => { g.clear(); draw(g); g.generateTexture(key, w, h); };
     texture("player", 40, 40, g => {
-      g.fillStyle(0x568fd3).fillCircle(20, 20, 15);
-      g.lineStyle(2, 0xc8e2ff).strokeCircle(20, 20, 15);
-      g.fillStyle(0xffffff).fillTriangle(39, 20, 25, 15, 25, 25);
+      g.fillStyle(0x4199ff).fillRect(5, 5, 30, 30);
+      g.fillStyle(0xffffff).fillTriangle(39, 20, 25, 14, 25, 26);
     });
     texture("goblin", 36, 36, g => {
-      g.fillStyle(0x739449).fillTriangle(0, 3, 15, 13, 5, 23).fillTriangle(36, 3, 21, 13, 31, 23).fillCircle(18, 18, 13);
-      g.fillStyle(0x17171b).fillRect(12, 13, 4, 4).fillRect(22, 13, 4, 4);
+      g.fillStyle(0x72c951).fillRect(4, 4, 28, 28);
+      g.fillStyle(0x222222).fillRect(10, 12, 5, 5).fillRect(21, 12, 5, 5);
     });
     texture("skeleton", 36, 36, g => {
-      g.fillStyle(0xddd6bd).fillCircle(18, 15, 12).fillRect(11, 22, 14, 8);
-      g.fillStyle(0x29252c).fillRect(10, 11, 6, 6).fillRect(21, 11, 6, 6);
+      g.fillStyle(0xeeeeee).fillRect(4, 4, 28, 28);
+      g.fillStyle(0x222222).fillRect(10, 12, 5, 5).fillRect(21, 12, 5, 5);
     });
     texture("chest", 44, 34, g => {
-      g.fillStyle(0x83552e).fillRect(1, 1, 42, 32);
-      g.lineStyle(3, 0xc79a4b).strokeRect(2, 2, 40, 30).lineBetween(3, 13, 40, 13);
-      g.fillStyle(0xe8bf55).fillRect(18, 10, 8, 10);
+      g.fillStyle(0xa46e38).fillRect(0, 0, 44, 34);
+      g.fillStyle(0xe2c16c).fillRect(0, 12, 44, 4).fillRect(19, 10, 6, 11);
     });
-    texture("pillar", 64, 64, g => {
-      g.fillStyle(0x4c4850).fillCircle(32, 32, 31);
-      g.lineStyle(3, 0x706977).strokeCircle(32, 32, 28);
-    });
-    texture("coin", 18, 18, g => {
-      g.fillStyle(0xe0b848).fillCircle(9, 9, 7);
-      g.lineStyle(1, 0xffe5a1).strokeCircle(9, 9, 5);
-    });
+    texture("pillar", 64, 64, g => { g.fillStyle(0x666666).fillRect(0, 0, 64, 64); });
+    texture("coin", 18, 18, g => { g.fillStyle(0xffd84a).fillRect(2, 2, 14, 14); });
     texture("heal", 20, 20, g => {
-      g.fillStyle(0x83c489).fillRect(7, 1, 6, 18).fillRect(1, 7, 18, 6);
+      g.fillStyle(0x9affaa).fillRect(7, 1, 6, 18).fillRect(1, 7, 18, 6);
     });
     texture("arrow", 24, 8, g => {
-      g.fillStyle(0xe6d7ad).fillRect(0, 3, 19, 2).fillTriangle(24, 4, 16, 0, 16, 8);
+      g.fillStyle(0xffffff).fillRect(0, 3, 19, 2).fillTriangle(24, 4, 16, 0, 16, 8);
     });
-    texture("bolt", 14, 14, g => { g.fillStyle(0xdd7285).fillCircle(7, 7, 6); });
-    texture("core", 100, 100, g => {
-      g.fillStyle(0x713b4b).fillCircle(50, 50, 46);
-      g.lineStyle(4, 0xd58b99).strokeCircle(50, 50, 43);
-      g.fillStyle(0xf4c590).fillTriangle(50, 27, 34, 62, 66, 62);
-    });
+    texture("bolt", 18, 18, g => { g.fillStyle(0xff5353).fillRect(1, 1, 16, 16); });
+    texture("core", 100, 100, g => { g.fillStyle(0xa34747).fillRect(4, 4, 92, 92); });
     texture("armor", 48, 48, g => {
-      g.fillStyle(0x7b7485).fillRect(3, 3, 42, 42);
-      g.lineStyle(3, 0xbbb2c6).strokeRect(3, 3, 42, 42);
-      g.lineStyle(2, 0x413b49).lineBetween(8, 8, 40, 40).lineBetween(8, 40, 40, 8);
+      g.fillStyle(0xbbbbbb).fillRect(1, 1, 46, 46);
     });
     g.destroy();
   }
 
   drawRoom() {
     const g = this.add.graphics();
-    g.fillStyle(0x262329).fillRect(0, 0, RULES.width, RULES.height);
-    g.lineStyle(1, 0x302d34);
-    for (let x = 0; x <= RULES.width; x += 80) g.lineBetween(x, 0, x, RULES.height);
-    for (let y = 0; y <= RULES.height; y += 80) g.lineBetween(0, y, RULES.width, y);
-    g.lineStyle(28, 0x514a50).strokeRect(16, 16, RULES.width - 32, RULES.height - 32);
-    g.lineStyle(3, 0x9173b0).strokeCircle(900, 700, 65);
-    g.fillStyle(0x563d70, 0.5).fillCircle(900, 700, 62);
-    this.add.text(900, 773, "ALTAR · 30 GOLD · E", { fontSize: "15px", color: "#b9a0d0" }).setOrigin(0.5);
+    g.fillStyle(0x383838).fillRect(0, 0, RULES.width, RULES.height);
+    g.lineStyle(28, 0x777777).strokeRect(16, 16, RULES.width - 32, RULES.height - 32);
+    g.fillStyle(0x785797).fillRect(835, 635, 130, 130);
+    this.add.text(900, 785, "SUMMON BOSS\nE (30 gold)", { fontSize: "16px", color: "#ffffff", align: "center" }).setOrigin(0.5);
     for (const [x, y] of [[900, 60], [1740, 700], [900, 1340], [60, 700]]) {
-      g.fillStyle(0x151318).fillRect(x - 28, y - 28, 56, 56);
+      g.fillStyle(0x222222).fillRect(x - 28, y - 28, 56, 56);
     }
   }
 
@@ -201,7 +186,7 @@ class Dungeon extends Phaser.Scene {
     this.started = true;
     ui.overlay.hidden = true;
     this.physics.world.resume();
-    this.notice("Gather 30 gold before the monsters do. Return to the altar to summon.", 7000);
+    this.notice("Collect 30 gold. Then go to the purple square in the middle and press E.", 7000);
     document.querySelector("canvas").focus();
   }
 
@@ -263,7 +248,7 @@ class Dungeon extends Phaser.Scene {
     enemy.hp = type === "goblin" ? 4 : 3;
     enemy.maxHp = enemy.hp;
     enemy.carried = 0;
-    enemy.nextShot = this.playTime + 1800;
+    enemy.nextShot = this.playTime + 2600;
     enemy.setCircle(13, 5, 5).setCollideWorldBounds(true).setBounce(0.3);
     return enemy;
   }
@@ -272,7 +257,7 @@ class Dungeon extends Phaser.Scene {
     if (!this.started || this.ended || !coin.active) return;
     coin.destroy();
     this.gold++;
-    if (this.gold === RULES.goal && !this.boss) this.notice("30 gold! Return to the center altar and press E.", 7000);
+    if (this.gold === RULES.goal && !this.boss) this.notice("Enough gold! Go back to the purple square in the middle and press E.", 7000);
   }
 
   collectEnemy(enemy, coin) {
@@ -332,7 +317,7 @@ class Dungeon extends Phaser.Scene {
     if (!target.active || this.ended) return;
     if (target.kind === "core" && this.bossParts.some(part => part.active)) {
       if (this.playTime >= (this.shieldNotice || 0)) {
-        this.notice("Core shielded: break BOTH arms and the crown first.");
+        this.notice("The red center is protected. Break the 3 grey blocks first.");
         this.shieldNotice = this.playTime + 1800;
       }
       return;
@@ -356,26 +341,27 @@ class Dungeon extends Phaser.Scene {
       target.destroy();
       const remaining = this.bossParts.filter(part => part.active).length;
       this.dropGold(x, y, 5);
-      this.notice(remaining ? `Boss part broken! ${remaining} remaining.` : "All parts broken! Attack the exposed CORE.", 5000);
+      this.notice(remaining ? `Grey block broken. ${remaining} left.` : "All grey blocks broken. Hit the red center now!", 5000);
     } else if (kind === "core") {
       target.destroy();
       this.finish(true);
     }
   }
 
-  hurtPlayer(amount) {
+  hurtPlayer(amount, source = "monster") {
     if (!this.started || this.ended || this.pausedGame || this.playTime < this.invulnerableUntil) return;
     this.health = Math.max(0, this.health - amount);
-    this.invulnerableUntil = this.playTime + 750;
+    this.invulnerableUntil = this.playTime + 1000;
     this.player.setTint(0xe48484).setTintMode(Phaser.TintModes.FILL);
+    this.notice(`Hit by ${source}: -${amount} health.`, 1800);
     if (this.health <= 0) this.finish(false);
   }
 
   trySummon() {
-    if (this.boss) { this.notice("The boss is already here. Break its parts, then its core."); return false; }
+    if (this.boss) { this.notice("The boss is here. Break the grey blocks, then the red center."); return false; }
     if (this.gold < RULES.goal) { this.notice("You need 30 gold to summon the boss."); return false; }
     if (Phaser.Math.Distance.Between(this.player.x, this.player.y, 900, 700) > 100) {
-      this.notice("Return to the purple altar in the center of the room.");
+      this.notice("Go back to the purple square in the middle of the room, then press E.");
       return false;
     }
     this.gold -= RULES.goal;
@@ -404,14 +390,13 @@ class Dungeon extends Phaser.Scene {
       part.body.moves = false;
       return part;
     });
-    this.notice(empowered ? "The monsters collected 30 gold! An empowered boss has arrived." : "Boss summoned! Break the two arms and crown, then the core.", 6500);
-    this.cameras.main.shake(180, 0.005);
+    this.notice(empowered ? "The monsters collected 30 gold! An empowered boss has arrived." : "Boss here: hit the 3 grey blocks first, then the red center.", 6500);
   }
 
-  shootBolt(x, y, angle, speed = 230) {
+  shootBolt(x, y, angle, speed = 165) {
     const shot = this.enemyShots.create(x, y, "bolt").setDepth(6);
     shot.expires = this.playTime + 3500;
-    shot.setCircle(6, 1, 1);
+    shot.setCircle(8, 1, 1);
     this.physics.velocityFromRotation(angle, speed, shot.body.velocity);
   }
 
@@ -432,7 +417,7 @@ class Dungeon extends Phaser.Scene {
       if (ranged && playerDistance < 500 && this.playTime > enemy.nextShot) {
         const aim = Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y);
         this.shootBolt(enemy.x, enemy.y, aim);
-        enemy.nextShot = this.playTime + 2400;
+        enemy.nextShot = this.playTime + 3200;
       }
     }
   }
@@ -456,7 +441,7 @@ class Dungeon extends Phaser.Scene {
       else if (this.playTime < boss.chargeUntil) { speed = 180 + alive * 35; moveAngle = boss.chargeAngle; }
     } else if (this.playTime > boss.nextAction) {
       const count = 4 + alive * 2;
-      for (let i = 0; i < count; i++) this.shootBolt(core.x, core.y, angle + i * Math.PI * 2 / count, 190);
+      for (let i = 0; i < count; i++) this.shootBolt(core.x, core.y, angle + i * Math.PI * 2 / count, 160);
       boss.nextAction = this.playTime + 1700;
     }
     // Move the compound boss as one unit, with its armor attached to the core.
@@ -475,7 +460,7 @@ class Dungeon extends Phaser.Scene {
   drawBars() {
     this.bars.clear();
     for (const target of [...this.enemies.getChildren(), ...this.parts.getChildren()]) {
-      if (!target.active) continue;
+      if (!target.active || (target.kind === "enemy" && target.hp === target.maxHp)) continue;
       const width = target.kind === "core" ? 80 : 32;
       const y = target.y - (target.kind === "core" ? 55 : 29);
       this.bars.fillStyle(0x18151b).fillRect(target.x - width / 2, y, width, 5);
@@ -495,19 +480,19 @@ class Dungeon extends Phaser.Scene {
   }
 
   refreshHud() {
-    ui.health.textContent = `Health: ${this.health} / 100`;
-    ui.gold.textContent = `Gold: ${this.gold}${this.boss ? " (arrow ammo)" : " / 30"}`;
-    const weapon = RULES.weapons[this.weaponIndex];
-    ui.weapon.textContent = `${this.weaponIndex + 1} ${weapon.name}${this.weaponIndex === 2 ? " · 1 gold / arrow" : ""}`;
-    ui.rivals.textContent = `Enemy gold: Goblins ${this.enemyGold.goblin} · Skeletons ${this.enemyGold.skeleton}`;
+    ui.health.textContent = `Health: ${this.health}/100`;
+    ui.gold.textContent = `Gold: ${this.gold}`;
+    ui.weapon.textContent = `Weapon: ${RULES.weapons[this.weaponIndex].name} (${this.weaponIndex + 1})`;
+    ui.rivals.textContent = `Enemy gold: goblins ${this.enemyGold.goblin}, skeletons ${this.enemyGold.skeleton}. At 30 they summon a stronger boss.`;
     if (this.boss) {
-      const name = this.boss.faction === "goblin" ? "Goblin Warlord" : "Skeleton Lich";
       const remaining = this.bossParts.filter(part => part.active).length;
-      ui.boss.textContent = `${this.boss.empowered ? "Empowered " : ""}${name} · Parts: ${3 - remaining}/3 broken · Core: ${Math.max(0, this.boss.core.hp)} / ${this.boss.core.maxHp}${remaining ? " (shielded)" : " — exposed!"}`;
+      ui.boss.textContent = remaining
+        ? `Goal: break the boss's 3 grey blocks. ${remaining} left. The red center is protected.`
+        : `Goal: hit the boss's red center. Health: ${Math.max(0, this.boss.core.hp)}/${this.boss.core.maxHp}.`;
     } else {
       ui.boss.textContent = this.gold >= RULES.goal
-        ? "Ready to summon: return to the purple center altar and press E."
-        : "Collect 30 gold, return to the purple center altar, and press E.";
+        ? "Goal: go to the purple square in the middle and press E to summon the boss."
+        : `Goal: collect ${RULES.goal} gold (${this.gold}/${RULES.goal}). Then return to the purple square and press E.`;
     }
   }
 
@@ -536,6 +521,7 @@ class Dungeon extends Phaser.Scene {
     const y = Number(this.keys.down.isDown || this.cursors.down.isDown) - Number(this.keys.up.isDown || this.cursors.up.isDown);
     const vector = new Phaser.Math.Vector2(x, y).normalize().scale(RULES.speed);
     this.player.setVelocity(vector.x, vector.y).setRotation(this.aim);
+    this.playerLabel.setPosition(this.player.x, this.player.y - 30);
     if (this.playTime >= this.invulnerableUntil) this.player.clearTint();
     [this.keys.one, this.keys.two, this.keys.three].forEach((key, index) => {
       if (Phaser.Input.Keyboard.JustDown(key)) this.weaponIndex = index;
@@ -545,9 +531,9 @@ class Dungeon extends Phaser.Scene {
     if (this.playTime >= this.effectUntil) this.effects.clear();
     this.updateEnemies();
     this.updateBoss(delta);
-    if (this.playTime > this.nextSpawn && this.enemies.countActive() < (this.boss ? 10 : 18)) {
+    if (this.playTime > this.nextSpawn && this.enemies.countActive() < (this.boss ? 6 : 10)) {
       this.spawnEnemy(Math.random() < 0.6 ? "goblin" : "skeleton");
-      this.nextSpawn = this.playTime + (this.boss ? 5000 : 2800);
+      this.nextSpawn = this.playTime + (this.boss ? 6500 : 4200);
     }
     if (this.playTime > this.nextChest && this.chests.countActive() < 14) {
       const point = this.freePoint();
