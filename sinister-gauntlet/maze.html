@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Goblin King maze</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 12px; background: #eee; color: #111; font: 16px Arial, sans-serif; }
+    main { max-width: 1000px; margin: auto; }
+    h1 { font-size: 22px; margin: 0; }
+    h2 { font-size: 20px; margin: 0 0 12px; }
+    p { margin: 7px 0; line-height: 1.4; }
+    button { font: inherit; cursor: pointer; padding: 4px 12px; }
+    .top { display: flex; gap: 20px; align-items: center; margin-bottom: 8px; }
+    #hud { display: flex; flex-wrap: wrap; gap: 20px; font-weight: bold; }
+    #boss { padding: 8px 0; font-weight: bold; }
+    .controls { font-size: 14px; }
+    #game-wrap { position: relative; }
+    #game { width: 100%; aspect-ratio: 1000 / 640; background: #383838; }
+    canvas { display: block; }
+    #overlay { position: absolute; inset: 0; display: grid; place-items: center; background: #0004; }
+    #overlay[hidden] { display: none; }
+    #panel { max-width: 480px; margin: 15px; padding: 20px; background: #eee; border: 1px solid #222; }
+    #message { min-height: 28px; padding-top: 6px; }
+  </style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>Goblin King maze</h1>
+    <button type="button" onclick="location.reload()">Restart</button>
+  </div>
+  <div id="hud">
+    <span id="health">Health: 100/100</span>
+    <span id="gold">Gold: 0</span>
+    <span id="altar">Altar: 0/30</span>
+    <span id="weapon">Left click: strike | King click: 5 gold</span>
+  </div>
+  <div id="boss">Goal: keep the altar under 30, then left click the king for 5 gold a hit.</div>
+  <p class="controls">WASD / arrows: move | Left click a monster or chest | Left click the king: 5 gold</p>
+  <p class="controls">P: pause | R: restart</p>
+  <div id="game-wrap">
+    <div id="game" aria-label="Goblin King maze"></div>
+    <div id="overlay">
+      <div id="panel">
+        <h2 id="overlay-title">How to play</h2>
+        <div id="overlay-copy">
+          <p>1. Left click a gold chest to break it. Pick up the coins.</p>
+          <p>2. Goblins carry coins to the purple altar and can chip open chests. At 30, the Goblin King wakes.</p>
+          <p>3. Left click a monster to hit it. Left click the king to strike him for 5 gold.</p>
+          <p>You are blue. Skeletons shoot straight red arrows. Only the king smashes walls.</p>
+        </div>
+        <button id="play" type="button">Start</button>
+      </div>
+    </div>
+  </div>
+  <div id="message" role="status">Break gold chests. Keep goblins from filling the altar.</div>
+  <p class="controls">Blue: you | Green: goblins | White: skeletons | Gold chest: coins | Purple: altar | Crowned green: Goblin King</p>
+</main>
+<script src="vendor/phaser.min.js"></script>
+<script src="maze.js"></script>
+</body>
+</html>

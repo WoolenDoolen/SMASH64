@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Goblin King maze checks</title>
+<style>body { background: #17151a; color: #ddd; font: 15px monospace; } iframe { width: 1050px; height: 900px; border: 0; }</style>
+<h1>Maze checks</h1>
+<pre id="results">Waiting for Phaser...</pre>
+<iframe id="prototype" src="../maze.html"></iframe>
+<script>
+"use strict";
+const results = document.getElementById("results");
+const frame = document.getElementById("prototype");
+const lines = [];
+let failures = 0;
+function check(name, test) {
+  try { test(); lines.push("PASS " + name); }
+  catch (error) { failures++; lines.push("FAIL " + name + ": " + error.message); }
+  results.textContent = lines.join("\n");
+}
+function assert(condition, message) { if (!condition) throw new Error(message || "Assertion failed"); }
+const errors = [];
+frame.addEventListener("load", () => {
+  const win = frame.contentWindow;
+  win.addEventListener("error", event => errors.push(event.message));
+  let attempts = 0;
+  const timer = setInterval(() => {
+    try {
+      const game = win.game;
+      const scene = game && game.scene.getScene("Maze");
+      if (!scene || !scene.player) {
+        if (++attempts > 100) throw new Error("Game did not initialize");
+        return;
+      }
+      clearInterval(timer);
+      game.loop.sleep();
+      run(game, scene, win);
+    } catch (error) {
+      clearInterval(timer);
+      failures++;
+      results.textContent += "\nFAIL initialization: " + error.message;
+      document.body.dataset.result = "fail";
+    }
+  }, 50);
+});
+function run(game, scene, win) {
+  const fresh = () => {
+    game.scene.stop("Maze");
+    game.scene.start("Maze");
+    scene = game.scene.getScene("Maze");
+    scene.begin();
+    scene.goblins.clear(true, true);
+    scene.skeletons.clear(true, true);
+    scene.coins.clear(true, true);
+    scene.enemyShots.clear(true, true);
+    if (scene.king) scene.king.destroy();
+    scene.king = null;
+    scene.kingSummoned = false;
+    scene.altarGold = 0;
+    scene.gold = 0;
+    scene.health = 100;
+    scene.nextGoblin = 1e9;
+    scene.nextSkeleton = 1e9;
+    scene.nextAttack = 0;
+    scene.respawns = [];
+    return scene;
+  };
+  const step = (frames = 1) => {
+    for (let i = 0; i < frames; i++) {
+      scene.update(0, 1000 / 60);
+      scene.physics.world.update(0, 1000 / 60);
+      scene.physics.world.postUpdate();
+    }
+  };
+  const place = (sprite, col, row) => {
+    const spot = scene.world(col, row);
+    sprite.body.reset(spot.x, spot.y);
+  };
+  check("left click spends no gold, hurts a goblin, and misses the king", () => {
+    fresh();
+    const goblin = scene.spawnGoblin(scene.world(12, 9).x, scene.world(12, 9).y);
+    scene.summonKing();
+    place(scene.king, 14, 9);
+    scene.king.stunUntil = 1e9;
+    scene.gold = 8;
+    assert(scene.clickAttack(goblin.x, goblin.y));
+    assert(scene.gold === 8, "Goblin click spent gold");
+    assert(!goblin.active, "Goblin click left the goblin standing");
+    assert(scene.king.hp === scene.king.maxHp, "Goblin click hurt the king");
+  });
+  check("left click on the king spends 5 gold and hurts him", () => {
+    fresh();
+    scene.summonKing();
+    place(scene.king, 13, 9);
+    scene.king.stunUntil = 1e9;
+    scene.gold = 5;
+    assert(scene.clickAttack(scene.king.x, scene.king.y));
+    assert(scene.gold === 0);
+    assert(scene.king.hp === scene.king.maxHp - 1);
+  });
+  check("a king click under 5 gold does not strike or start the cooldown", () => {
+    fresh();
+    scene.summonKing();
+    scene.gold = 4;
+    scene.playTime = 500;
+    scene.nextAttack = 0;
+    assert(!scene.clickAttack(scene.king.x, scene.king.y));
+    assert(scene.gold === 4);
+    assert(scene.nextAttack === 0);
+    assert(scene.king.hp === scene.king.maxHp);
+  });
+  check("clicking the king does not hit a goblin standing in front of him", () => {
+    fresh();
+    const goblin = scene.spawnGoblin(scene.world(12, 9).x, scene.world(12, 9).y);
+    scene.summonKing();
+    place(scene.king, 14, 9);
+    scene.king.stunUntil = 1e9;
+    scene.gold = 10;
+    assert(scene.clickAttack(scene.king.x, scene.king.y));
+    assert(scene.gold === 5);
+    assert(goblin.active && goblin.hp === goblin.maxHp, "King click hurt the goblin");
+    assert(scene.king.hp === scene.king.maxHp - 1);
+  });
+  check("a goblin deposits one coin and leaves the other on the ground", () => {
+    fresh();
+    const spot = scene.world(scene.altarCol, scene.altarRow);
+    const goblin = scene.spawnGoblin(spot.x, spot.y);
+    scene.coins.create(spot.x, spot.y, "coin");
+    scene.coins.create(spot.x, spot.y, "coin");
+    step(1);
+    assert(goblin.carried === 1, "Goblin took both coins or neither");
+    assert(scene.coins.countActive() === 1, "Second coin was removed");
+    scene.update(0, 16);
+    assert(scene.altarGold === 1, "Altar did not take the carried coin");
+    assert(goblin.carried === 0);
+    assert(scene.coins.countActive() === 1, "Deposit removed the spare coin");
+    assert(!scene.king, "One coin summoned the king");
+  });
+  check("a skeleton ignores gold and fires a straight arrow", () => {
+    fresh();
+    place(scene.player, 10, 9);
+    const spot = scene.world(14, 9);
+    const skeleton = scene.spawnSkeleton(spot.x, spot.y);
+    scene.coins.create(spot.x, spot.y, "coin");
+    step(3);
+    assert(scene.coins.countActive() === 1, "Skeleton picked up gold");
+    assert(!skeleton.carried);
+    scene.enemyShots.clear(true, true);
+    skeleton.nextShot = 0;
+    scene.playTime = 50;
+    place(scene.player, 10, 9);
+    place(skeleton, 14, 9);
+    scene.updateSkeletons();
+    const shot = scene.enemyShots.getChildren()[0];
+    assert(shot, "Skeleton did not fire");
+    const vx = shot.body.velocity.x;
+    assert(vx < -100, "Arrow was not aimed at the player");
+    assert(Math.abs(shot.body.velocity.y) < 1, "Arrow did not fly straight");
+    place(scene.player, 10, 14);
+    scene.updateSkeletons();
+    assert(shot.body.velocity.x === vx && Math.abs(shot.body.velocity.y) < 1, "Arrow turned after the player moved");
+  });
+  check("the king holds his line, then stops for 3 seconds after a hit", () => {
+    fresh();
+    scene.summonKing();
+    place(scene.king, 12, 9);
+    place(scene.player, 20, 9);
+    scene.king.stunUntil = 0;
+    scene.king.charging = false;
+    scene.updateKing();
+    const lockX = scene.king.lockX;
+    const lockY = scene.king.lockY;
+    const dash = win.Phaser.Math.Distance.Between(scene.king.x, scene.king.y, lockX, lockY);
+    assert(scene.king.charging && Math.abs(dash - win.MAZE.kingDash) < 1, "Dash length follows the player");
+    assert(dash < win.Phaser.Math.Distance.Between(scene.king.x, scene.king.y, scene.player.x, scene.player.y));
+    place(scene.player, 16, 14);
+    scene.updateKing();
+    assert(scene.king.lockX === lockX && scene.king.lockY === lockY, "King re-aimed mid charge");
+    assert(scene.king.body.velocity.x > 200, "King left the locked line");
+    assert(Math.abs(scene.king.body.velocity.y) < 5, "King turned toward the new position");
+    place(scene.player, 12, 9);
+    scene.king.setVelocity(0);
+    scene.physics.world.update(0, 16);
+    scene.physics.world.postUpdate();
+    scene.physics.world.update(0, 16);
+    scene.physics.world.postUpdate();
+    assert(scene.health === 75, "Charge hit did not deal 25");
+    assert(scene.king.stunUntil >= scene.playTime + 3000, "King did not stop for 3 seconds");
+    scene.updateKing();
+    assert(scene.king.body.velocity.length() < 1, "King kept moving during the stop");
+    scene.playTime = scene.king.stunUntil - 20;
+    scene.updateKing();
+    assert(!scene.king.charging && scene.king.body.velocity.length() < 1);
+    place(scene.player, 16, 9);
+    scene.playTime = scene.king.stunUntil + 1;
+    scene.updateKing();
+    assert(scene.king.charging && scene.king.body.velocity.length() > 200, "King did not charge again after the stop");
+  });
+  check("the king breaks a wall in his path and other walls still stop you", () => {
+    fresh();
+    scene.summonKing();
+    const wall = scene.wallAt(17, 9);
+    assert(wall, "Expected a wall east of the altar lane");
+    place(scene.king, 16, 9);
+    const beyond = scene.world(20, 9);
+    scene.king.stunUntil = 0;
+    scene.king.charging = true;
+    scene.king.lockX = beyond.x;
+    scene.king.lockY = beyond.y;
+    step(50);
+    assert(!wall.active, "King did not break the wall");
+    assert(scene.grid[9][17] === ".", "Broken wall stayed solid for pathing");
+    place(scene.player, 4, 9);
+    scene.keys.right.isDown = true;
+    step(30);
+    assert(scene.player.x < scene.world(5, 9).x - 16, "Player crossed a wall the king did not break");
+    scene.keys.right.isDown = false;
+  });
+  check("a broken chest drops 3 to 5 gold and returns after 10 seconds", () => {
+    fresh();
+    const chest = scene.chestAt(3, 3);
+    assert(chest, "Missing chest");
+    assert(scene.clickAttack(chest.x, chest.y));
+    assert(!chest.active, "Click did not break the chest");
+    const coins = scene.coins.countActive();
+    assert(coins >= 3 && coins <= 5, "Chest dropped " + coins + " coins");
+    const spot = scene.respawns[0];
+    scene.playTime = spot.at;
+    scene.update(0, 16);
+    const again = scene.chestAt(3, 3);
+    assert(again && again.active, "Chest did not respawn on its tile");
+  });
+  game.loop.wake();
+  setTimeout(() => {
+    check("no browser runtime errors after resuming", () => assert(errors.length === 0, errors.join("; ")));
+    lines.push(`\n${lines.length - failures} passed, ${failures} failed`);
+    results.textContent = lines.join("\n");
+    document.body.dataset.result = failures ? "fail" : "pass";
+  }, 250);
+}
+</script>
+</html>
